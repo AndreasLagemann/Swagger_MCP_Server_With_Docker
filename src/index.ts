@@ -147,7 +147,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
  * Start the server using stdio transport.
  * This allows the server to communicate via standard input/output streams.
  */
-async function main() {
 // --- SSE Server Implementation ---
 const sessions = new Map();
 
@@ -188,4 +187,3 @@ const httpServer = http.createServer(async (req, res) => {
 httpServer.listen(serverPort, () => {
   logger.info(`Swagger MCP SSE server listening on port ${serverPort}`);
 });
-}
