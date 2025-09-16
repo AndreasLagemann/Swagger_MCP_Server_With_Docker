@@ -1,5 +1,7 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import http from 'node:http';
+import url from 'node:url';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -146,12 +148,44 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
  * This allows the server to communicate via standard input/output streams.
  */
 async function main() {
-    // Connect using stdio transport
-    const transport = new StdioServerTransport();
-    await server.connect(transport);    
-}
+// --- SSE Server Implementation ---
+const sessions = new Map();
 
-main().catch((error) => {
-  logger.error("Server error:", error);
-  process.exit(1);
+const serverPort = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+
+const httpServer = http.createServer(async (req, res) => {
+  const parsedUrl = url.parse(req.url || '', true);
+  if (req.method === 'GET' && parsedUrl.pathname === '/sse') {
+    // Establish SSE connection
+    const transport = new SSEServerTransport('/sse', res);
+    sessions.set(transport.sessionId, transport);
+    await server.connect(transport);
+    res.on('close', () => {
+      sessions.delete(transport.sessionId);
+    });
+  } else if (req.method === 'POST' && parsedUrl.pathname && parsedUrl.pathname.startsWith('/sse/')) {
+    // Handle POST message for a session
+    const sessionId = parsedUrl.pathname.split('/')[2];
+    const transport = sessions.get(sessionId);
+    if (!transport) {
+      res.writeHead(404).end('Session not found');
+      return;
+    }
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        await transport.handlePostMessage(req, res, JSON.parse(body));
+      } catch (err) {
+        res.writeHead(400).end('Invalid message');
+      }
+    });
+  } else {
+    res.writeHead(404).end('Not found');
+  }
 });
+
+httpServer.listen(serverPort, () => {
+  logger.info(`Swagger MCP SSE server listening on port ${serverPort}`);
+});
+}
